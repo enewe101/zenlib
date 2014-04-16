@@ -39,6 +39,10 @@ __all__ = ['read','write']
 DIGITS = tuple(['%d' % x for x in range(10)]) + ('+','-')
 DIGITS_AND_QUOTES = DIGITS + ('"',)
 
+
+# TODO add Creator attribute
+# TODO handle > double precision floats
+# TODO add Encoder
 def write(G, filename, **kwargs):
 	"""
 	Writes graph to file using Graph Modeling Language (gml).  Node / Edge / 
@@ -199,6 +203,8 @@ def format_zen_data(keyname, data, tab_depth, encoder, strict=True):
 					'see <http://www.fim.uni-passau.de/fileadmin/files/lehrstuhl/brandenburg/projekte/gml/gml-technical-report.pdf>. \n Use '\
 					'gml.write(..., strict=False) to force writing.')
 
+		#TODO: floats should be tested to be within double precision
+
 		# The encoded data is legal for gml. Append extras.
 		formatted_data = tabs + keyname + ' ' + encoded_data + '\n'
 
@@ -313,6 +319,9 @@ def read_all(fname, **kwargs):
 
 def build_graph(graph_tree, weight_fxn):
 
+	# TODO: Load graph attributes
+	# TODO: support Bipartite Graphs
+
 	# What kind of graph is being built?
 	is_bipartite = bool('bipartite' in graph_tree and graph_tree['bipartite'])
 	is_directed = bool('directed' in graph_tree and graph_tree['directed'])
@@ -326,6 +335,7 @@ def build_graph(graph_tree, weight_fxn):
 	else:
 		G = Graph()
 
+
 	# Build the nodes
 	if 'node' in graph_tree:
 
@@ -336,8 +346,55 @@ def build_graph(graph_tree, weight_fxn):
 		if not isinstance(nodes, list):
 			nodes = [ nodes ]
 
+
+		### Hack to make bipartite graphs work ###
+
+		# We are not able to force the id of an added node, so we need
+		# to add all the nodes first, and separately add the data to the node
+		# having the correct id
+
+		# TODO: Fixed this hack.  The cause is near line 432.
+		if is_bipartite:
+			# find the largest U-node id:
+			u_nodes = filter(lambda n: n['isInU'], nodes)
+			max_u_id = max(map(lambda n: n['id'], u_nodes))
+			min_u_id = min(map(lambda n: n['id'], u_nodes))
+
+			# find the largest V-node id:
+			v_nodes = filter(lambda n: not n['isInU'], nodes)
+			max_v_id = max(map(lambda n: n['id'], v_nodes))
+			min_v_id = min(map(lambda n: n['id'], v_nodes))
+
+			is_max_v_bigger = max_v_id > max_u_id
+			if is_max_v_bigger and min_v_id < max_u_id:
+				ZenException('The U and V ids are interspersed, so a hack '\
+					'to make bipartite graphs work won\'t work')
+
+			elif min_u_id < max_v_id:
+				ZenException('The U and V ids are interspersed, so a hack '\
+					'to make bipartite graphs work won\'t work')
+
+
+			if is_max_v_bigger:
+				for i in range(min_u_id, max_u_id + 1):
+					G.add_v_node()
+
+				for i in range(min_v_id, max_v_id + 1):
+					G.add_u_node()
+
+			else:
+				for i in range(min_v_id, max_v_id + 1):
+					G.add_u_node()
+
+				for i in range(min_u_id, max_u_id + 1):
+					G.add_v_node()
+
+
+
 		# Build each node and add to the graph
-		for node in nodes:	
+		extant_nodes = []
+		for node in sorted(nodes, None, lambda n: n['id']):	
+
 
 			# Does the node have an id?
 			has_id = True
@@ -353,6 +410,9 @@ def build_graph(graph_tree, weight_fxn):
 
 			# Got a valid node id
 			node_idx = node['id']
+
+			# this is part of the bipartite HACK
+			extant_nodes.append(node_idx)
 
 			# For bipartite graphs determine which node set this belongs to 
 			if is_bipartite:
@@ -405,7 +465,9 @@ def build_graph(graph_tree, weight_fxn):
 			# For bipartite graph, this insertion method does not guarantee 
 			# that indices will be unchanged after a read-write cycle
 			if is_bipartite:
-				G.add_node_by_class(is_in_U, node_obj, node_data)
+				G.set_node_object_(node_idx, node_obj)
+				G.set_node_data_(node_idx, node_data)
+				#G.add_node_by_class(is_in_U, node_obj, node_data)
 
 			elif has_id and has_valid_id:
 				if is_directed:
@@ -422,6 +484,17 @@ def build_graph(graph_tree, weight_fxn):
 
 				else:
 					G.add_node(nobj=node_obj, data=node_data)
+
+	# cleanup the Hacked mess
+	if is_bipartite:
+		for idx in G.U_():
+			if idx not in extant_nodes:
+				G.rm_node_(idx)
+
+		for idx in G.V_():
+			if idx not in extant_nodes:
+				G.rm_node_(idx)
+
 
 	# add edges
 	if 'edge' in graph_tree:

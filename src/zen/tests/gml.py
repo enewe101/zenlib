@@ -144,5 +144,28 @@ class GMLReadTestCase(unittest.TestCase):
 		self.assertEqual(len(G), len(H))
 
 
+	def test_justins_file(self):
+		G = gml.read('test6.gml')
+
+	def test_bipartite_gml(self):
+		G = BipartiteGraph()
+		G.add_u_node('A')
+		G.add_u_node('B')
+		G.add_u_node('C')
+		G.add_v_node('1')
+		G.add_v_node('2')
+		G.add_v_node('3')
+
+		G.add_edge('A', '1')
+		G.add_edge('B', '2')
+		G.add_edge('C', '3')
+		G.add_edge('A', '3')
+		G.add_edge('B', '1')
+		G.add_edge('C', '2')
+
+		gml.write(G, 'test7.gml')
+		H = gml.read('test7.gml')
+		print len(H)
+
 if __name__ == '__main__':
 	unittest.main()
